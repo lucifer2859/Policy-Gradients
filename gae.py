@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.distributions import Categorical
+from torch.distributions import Normal
 
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
@@ -25,7 +25,7 @@ sys.path.append('./common')
 from common.multiprocessing_env import SubprocVecEnv
 
 num_envs = 4
-env_name = "CartPole-v0"
+env_name = "Pendulum-v0"
 
 def make_env():
     def _thunk():
@@ -41,6 +41,11 @@ env = gym.make(env_name)
 
 
 # Neural Network
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        nn.init.normal_(m.weight, mean=0., std=0.1)
+        nn.init.constant_(m.bias, 0.1)
+
 class ActorCritic(nn.Module):
     def __init__(self, num_inputs, num_outputs, hidden_size, std=0.0):
         super(ActorCritic, self).__init__()
@@ -55,13 +60,16 @@ class ActorCritic(nn.Module):
             nn.Linear(num_inputs, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, num_outputs),
-            nn.Softmax(dim=1),
         )
+        self.log_std = nn.Parameter(torch.ones(1, num_outputs) * std)
+        
+        self.apply(init_weights)
         
     def forward(self, x):
         value = self.critic(x)
-        probs = self.actor(x)
-        dist  = Categorical(probs)
+        mu    = self.actor(x)
+        std   = self.log_std.exp().expand_as(mu)
+        dist  = Normal(mu, std)
         return dist, value
 
 def plot(frame_idx, rewards):
@@ -87,27 +95,32 @@ def test_env(vis=False):
     return total_reward
 
 
-# A2C: Synchronous Advantage Actor Critic
-def compute_returns(next_value, rewards, masks, gamma=0.99):
-    R = next_value
+# High-Dimensional Continuous Control Using Generalized Advantage Estimation
+# GAE(0<tau<1, 0<gamma<1)
+# tau=0: Small Variance, Large Bias
+# tau=1: Large Variance, Small Bias 
+def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
+    values = values + [next_value]
+    gae = 0
     returns = []
     for step in reversed(range(len(rewards))):
-        R = rewards[step] + gamma * R * masks[step]
-        returns.insert(0, R)
+        delta = rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
+        gae = delta + gamma * tau * masks[step] * gae
+        returns.insert(0, gae + values[step])
     return returns
 
 num_inputs  = envs.observation_space.shape[0]
-num_outputs = envs.action_space.n
+num_outputs = envs.action_space.shape[0]
 
 # Hyper params:
 hidden_size = 256
-lr          = 3e-4
-num_steps   = 5
+lr          = 3e-2
+num_steps   = 20
 
 model = ActorCritic(num_inputs, num_outputs, hidden_size).to(device)
 optimizer = optim.Adam(model.parameters())
 
-max_frames   = 20000
+max_frames   = 100000
 frame_idx    = 0
 test_rewards = []
 
@@ -146,7 +159,7 @@ while frame_idx < max_frames:
             
     next_state = torch.FloatTensor(next_state).to(device)
     _, next_value = model(next_state)
-    returns = compute_returns(next_value, rewards, masks)
+    returns = compute_gae(next_value, rewards, masks, values)
     
     log_probs = torch.cat(log_probs)
     returns   = torch.cat(returns).detach()
