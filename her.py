@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 import math
 import random
 
@@ -16,29 +10,16 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
 
-
-# In[2]:
-
-
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
 
 
-# <h2>Use CUDA</h2>
-
-# In[3]:
-
-
+# Use CUDA
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
 
 
-# <h2>Replay Buffer</h2>
-
-# In[4]:
-
-
+# Replay Buffer
 from collections import deque
 
 class ReplayBuffer(object):
@@ -56,11 +37,7 @@ class ReplayBuffer(object):
         return len(self.buffer)
 
 
-# <h2>Bit Flipping Environment</h2>
-
-# In[5]:
-
-
+# Bit Flipping Environment
 class Env(object):
     def __init__(self, num_bits):
         self.num_bits = num_bits
@@ -89,11 +66,7 @@ class Env(object):
             return np.copy(self.state), -1, self.done, {}
 
 
-# <h2>Neural Network</h2>
-
-# In[6]:
-
-
+# Neural Network
 class Model(nn.Module):
     def __init__(self, num_inputs, num_outputs, hidden_size=256):
         super(Model, self).__init__()
@@ -110,10 +83,6 @@ class Model(nn.Module):
 def update_target(current_model, target_model):
     target_model.load_state_dict(current_model.state_dict())
 
-
-# In[13]:
-
-
 def get_action(model, state, goal, epsilon=0.1):
     if random.random() < 0.1:
         return random.randrange(env.num_bits)
@@ -122,10 +91,6 @@ def get_action(model, state, goal, epsilon=0.1):
     goal  = torch.FloatTensor(goal).unsqueeze(0).to(device)
     q_value = model(state, goal)
     return q_value.max(1)[1].item()
-
-
-# In[14]:
-
 
 def plot(frame_idx, rewards, losses):
     clear_output(True)
@@ -139,11 +104,7 @@ def plot(frame_idx, rewards, losses):
     plt.show()
 
 
-# <h2>Q-learning TD Error</h2>
-
-# In[15]:
-
-
+# Q-learning TD Error
 def compute_td_error(batch_size):
     if batch_size > len(replay_buffer):
         return None
@@ -175,11 +136,7 @@ def compute_td_error(batch_size):
     return loss
 
 
-# <h1>DQN without Hindsight Experience Replay</h1>
-
-# In[34]:
-
-
+# DQN without Hindsight Experience Replay
 num_bits = 11
 env = Env(num_bits)
 
@@ -194,10 +151,6 @@ max_frames = 200000
     
 optimizer = optim.Adam(model.parameters())
 replay_buffer = ReplayBuffer(10000)
-
-
-# In[35]:
-
 
 frame_idx = 0
 all_rewards = []
@@ -217,25 +170,22 @@ while frame_idx < max_frames:
         frame_idx += 1
         
         if frame_idx % 1000 == 0:
-            plot(frame_idx, [np.mean(all_rewards[i:i+100]) for i in range(0, len(all_rewards), 100)], losses)
+            # plot(frame_idx, [np.mean(all_rewards[i:i+100]) for i in range(0, len(all_rewards), 100)], losses)
+            print('Frame: %d, Mean Reward: %.2f, Loss: %.6f' % (frame_idx, [np.mean(all_rewards[i:i+100]) for i in range(0, len(all_rewards), 100)][-1], losses[-1]))
         
     all_rewards.append(total_reward)
     
     loss = compute_td_error(batch_size)
-    if loss is not None: losses.append(loss.data[0])
+    if loss is not None: losses.append(loss.item())
 
 
-# <h1> Hindsight Experience Replay <a href="https://arxiv.org/abs/1707.01495">[arxiv]</a></h1>
-# <h2><a href="https://blog.openai.com/ingredients-for-robotics-research/#understandingher">OpenAI Blog:</a> Understanding HER</h2>
-# <p>To understand what HER does, let’s look at in the context of FetchSlide, a task where we need to learn to slide a puck across the table and hit a target. Our first attempt very likely will not be a successful one. Unless we get very lucky, the next few attempts will also likely not succeed. Typical reinforcement learning algorithms would not learn anything from this experience since they just obtain a constant reward (in this case: -1) that does not contain any learning signal.</p>
+# Hindsight Experience Replay([arxiv]"https://arxiv.org/abs/1707.01495")
+# OpenAI Blog: Understanding HER("https://blog.openai.com/ingredients-for-robotics-research/#understandingher")
+# To understand what HER does, let’s look at in the context of FetchSlide, a task where we need to learn to slide a puck across the table and hit a target. Our first attempt very likely will not be a successful one. Unless we get very lucky, the next few attempts will also likely not succeed. Typical reinforcement learning algorithms would not learn anything from this experience since they just obtain a constant reward (in this case: -1) that does not contain any learning signal.
 # 
-# <p>The key insight that HER formalizes is what humans do intuitively: Even though we have not succeeded at a specific goal, we have at least achieved a different one. So why not just pretend that we wanted to achieve this goal to begin with, instead of the one that we set out to achieve originally? By doing this substitution, the reinforcement learning algorithm can obtain a learning signal since it has achieved some goal; even if it wasn’t the one that we meant to achieve originally. If we repeat this process, we will eventually learn how to achieve arbitrary goals, including the goals that we really want to achieve.</p>
+# The key insight that HER formalizes is what humans do intuitively: Even though we have not succeeded at a specific goal, we have at least achieved a different one. So why not just pretend that we wanted to achieve this goal to begin with, instead of the one that we set out to achieve originally? By doing this substitution, the reinforcement learning algorithm can obtain a learning signal since it has achieved some goal; even if it wasn’t the one that we meant to achieve originally. If we repeat this process, we will eventually learn how to achieve arbitrary goals, including the goals that we really want to achieve.
 # 
-# <p>This approach lets us learn how to slide a puck across the table even though our reward is fully sparse and even though we may have never actually hit the desired goal early on. We call this technique Hindsight Experience Replay since it replays experience (a technique often used in off-policy RL algorithms like DQN and DDPG) with goals which are chosen in hindsight, after the episode has finished. HER can therefore be combined with any off-policy RL algorithm (for example, HER can be combined with DDPG, which we write as “DDPG + HER”).</p>
-
-# In[32]:
-
-
+# This approach lets us learn how to slide a puck across the table even though our reward is fully sparse and even though we may have never actually hit the desired goal early on. We call this technique Hindsight Experience Replay since it replays experience (a technique often used in off-policy RL algorithms like DQN and DDPG) with goals which are chosen in hindsight, after the episode has finished. HER can therefore be combined with any off-policy RL algorithm (for example, HER can be combined with DDPG, which we write as "DDPG + HER").
 num_bits = 11
 env = Env(num_bits)
 
@@ -243,17 +193,13 @@ model        = Model(2 * num_bits, num_bits).to(device)
 target_model = Model(2 * num_bits, num_bits).to(device)
 update_target(model, target_model)
 
-#hyperparams:
+# Hyperparams:
 batch_size = 5
 new_goals  = 5
 max_frames = 200000
     
 optimizer = optim.Adam(model.parameters())
 replay_buffer = ReplayBuffer(10000)
-
-
-# In[33]:
-
 
 frame_idx = 0
 all_rewards = []
@@ -278,7 +224,6 @@ while frame_idx < max_frames:
         
     all_rewards.append(total_reward)
     
-    
     new_episode = []
     for state, reward, done, next_state, goal in episode:
         for t in np.random.choice(num_bits, new_goals):
@@ -294,14 +239,5 @@ while frame_idx < max_frames:
             replay_buffer.push(state, action, reward, next_state, done, new_goal)
             new_episode.append((state, reward, done, next_state, new_goal))
     
-    
-    
     loss = compute_td_error(batch_size)
-    if loss is not None: losses.append(loss.data[0])
-
-
-# In[ ]:
-
-
-
-
+    if loss is not None: losses.append(loss.item())

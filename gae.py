@@ -24,7 +24,7 @@ import sys
 sys.path.append('./common')
 from common.multiprocessing_env import SubprocVecEnv
 
-num_envs = 4
+num_envs = 16
 env_name = "Pendulum-v0"
 
 def make_env():
@@ -167,7 +167,7 @@ while frame_idx < max_frames:
 
     advantage = returns - values
 
-    actor_loss  = -(log_probs * advantage.detach()).mean()
+    actor_loss  = - (log_probs * advantage.detach()).mean()
     critic_loss = advantage.pow(2).mean()
 
     loss = actor_loss + 0.5 * critic_loss - 0.001 * entropy

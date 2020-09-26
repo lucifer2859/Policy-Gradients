@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 import math
 import random
 
@@ -16,29 +10,16 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
 
-
-# In[2]:
-
-
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
 
 
-# <h2>Use CUDA</h2>
-
-# In[3]:
-
-
+# Use CUDA
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
 
 
-# <h2>Replay Buffer</h2>
-
-# In[5]:
-
-
+# Replay Buffer
 class ReplayBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
@@ -60,14 +41,10 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-# <h2>Normalize action space</h2>
-
-# In[8]:
-
-
+# Normalize action space
 class NormalizedActions(gym.ActionWrapper):
 
-    def _action(self, action):
+    def action(self, action):
         low_bound   = self.action_space.low
         upper_bound = self.action_space.high
         
@@ -86,13 +63,9 @@ class NormalizedActions(gym.ActionWrapper):
         return actions
 
 
-# <h2>Ornstein-Uhlenbeck process</h2>
-# Adding time-correlated noise to the actions taken by the deterministic policy<br>
-# <a href="https://en.wikipedia.org/wiki/Ornstein%E2%80%93Uhlenbeck_process">wiki</a>
-
-# In[12]:
-
-
+# Ornstein-Uhlenbeck process
+# Adding time-correlated noise to the actions taken by the deterministic policy
+# wiki: "https://en.wikipedia.org/wiki/Ornstein%E2%80%93Uhlenbeck_process"
 class OUNoise(object):
     def __init__(self, action_space, mu=0.0, theta=0.15, max_sigma=0.3, min_sigma=0.3, decay_period=100000):
         self.mu           = mu
@@ -120,12 +93,7 @@ class OUNoise(object):
         self.sigma = self.max_sigma - (self.max_sigma - self.min_sigma) * min(1.0, t / self.decay_period)
         return np.clip(action + ou_state, self.low, self.high)
     
-#https://github.com/vitchyr/rlkit/blob/master/rlkit/exploration_strategies/ou_strategy.py
-
-
-# In[16]:
-
-
+# https://github.com/vitchyr/rlkit/blob/master/rlkit/exploration_strategies/ou_strategy.py
 def plot(frame_idx, rewards):
     clear_output(True)
     plt.figure(figsize=(20,5))
@@ -135,12 +103,8 @@ def plot(frame_idx, rewards):
     plt.show()
 
 
-# <h1> Continuous control with deep reinforcement learning</h1>
-# <h2><a href="https://arxiv.org/abs/1509.02971">Arxiv</a></h2>
-
-# In[18]:
-
-
+# Continuous control with deep reinforcement learning
+# Arxiv: "https://arxiv.org/abs/1509.02971"
 class ValueNetwork(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size, init_w=3e-3):
         super(ValueNetwork, self).__init__()
@@ -174,7 +138,7 @@ class PolicyNetwork(nn.Module):
     def forward(self, state):
         x = F.relu(self.linear1(state))
         x = F.relu(self.linear2(x))
-        x = F.tanh(self.linear3(x))
+        x = torch.tanh(self.linear3(x))
         return x
     
     def get_action(self, state):
@@ -183,11 +147,7 @@ class PolicyNetwork(nn.Module):
         return action.detach().cpu().numpy()[0, 0]
 
 
-# <h2>DDPG Update</h2>
-
-# In[19]:
-
-
+# DDPG Update
 def ddpg_update(batch_size, 
            gamma = 0.99,
            min_value=-np.inf,
@@ -213,7 +173,6 @@ def ddpg_update(batch_size,
     value = value_net(state, action)
     value_loss = value_criterion(value, expected_value.detach())
 
-
     policy_optimizer.zero_grad()
     policy_loss.backward()
     policy_optimizer.step()
@@ -223,18 +182,14 @@ def ddpg_update(batch_size,
     value_optimizer.step()
 
     for target_param, param in zip(target_value_net.parameters(), value_net.parameters()):
-            target_param.data.copy_(
-                target_param.data * (1.0 - soft_tau) + param.data * soft_tau
-            )
+        target_param.data.copy_(
+            target_param.data * (1.0 - soft_tau) + param.data * soft_tau
+        )
 
     for target_param, param in zip(target_policy_net.parameters(), policy_net.parameters()):
-            target_param.data.copy_(
-                target_param.data * (1.0 - soft_tau) + param.data * soft_tau
-            )
-
-
-# In[25]:
-
+        target_param.data.copy_(
+            target_param.data * (1.0 - soft_tau) + param.data * soft_tau
+        )
 
 env = NormalizedActions(gym.make("Pendulum-v0"))
 ou_noise = OUNoise(env.action_space)
@@ -255,7 +210,6 @@ for target_param, param in zip(target_value_net.parameters(), value_net.paramete
 for target_param, param in zip(target_policy_net.parameters(), policy_net.parameters()):
     target_param.data.copy_(param.data)
     
-    
 value_lr  = 1e-3
 policy_lr = 1e-4
 
@@ -267,19 +221,11 @@ value_criterion = nn.MSELoss()
 replay_buffer_size = 1000000
 replay_buffer = ReplayBuffer(replay_buffer_size)
 
-
-# In[28]:
-
-
 max_frames  = 12000
 max_steps   = 500
 frame_idx   = 0
 rewards     = []
 batch_size  = 128
-
-
-# In[29]:
-
 
 while frame_idx < max_frames:
     state = env.reset()
@@ -300,16 +246,10 @@ while frame_idx < max_frames:
         frame_idx += 1
         
         if frame_idx % max(1000, max_steps + 1) == 0:
-            plot(frame_idx, rewards)
+            # plot(frame_idx, rewards)
+            print('Frame: %d, Reward: %.2f' % (frame_idx, rewards[-1]))
         
         if done:
             break
     
     rewards.append(episode_reward)
-
-
-# In[ ]:
-
-
-
-

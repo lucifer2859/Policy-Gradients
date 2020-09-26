@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 import math
 import random
 
@@ -16,29 +10,16 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
 
-
-# In[2]:
-
-
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
 
 
-# <h2>Use CUDA</h2>
-
-# In[3]:
-
-
+# Use CUDA
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
 
 
-# <h2>Replay Buffer</h2>
-
-# In[4]:
-
-
+# Replay Buffer
 class ReplayBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
@@ -59,12 +40,8 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
-
-# In[5]:
-
-
 class NormalizedActions(gym.ActionWrapper):
-    def _action(self, action):
+    def action(self, action):
         low  = self.action_space.low
         high = self.action_space.high
         
@@ -82,10 +59,6 @@ class NormalizedActions(gym.ActionWrapper):
         
         return actions
 
-
-# In[6]:
-
-
 def plot(frame_idx, rewards):
     clear_output(True)
     plt.figure(figsize=(20,5))
@@ -95,12 +68,8 @@ def plot(frame_idx, rewards):
     plt.show()
 
 
-# <h1>Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor</h1>
-# <h2><a href="https://arxiv.org/abs/1801.01290">Arxiv</a></h2>
-
-# In[17]:
-
-
+# Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor
+# Arxiv:"https://arxiv.org/abs/1801.01290"
 class ValueNetwork(nn.Module):
     def __init__(self, state_dim, hidden_dim, init_w=3e-3):
         super(ValueNetwork, self).__init__()
@@ -116,8 +85,7 @@ class ValueNetwork(nn.Module):
         x = F.relu(self.linear1(state))
         x = F.relu(self.linear2(x))
         x = self.linear3(x)
-        return x
-        
+        return x    
         
 class SoftQNetwork(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size, init_w=3e-3):
@@ -135,8 +103,7 @@ class SoftQNetwork(nn.Module):
         x = F.relu(self.linear1(x))
         x = F.relu(self.linear2(x))
         x = self.linear3(x)
-        return x
-        
+        return x  
         
 class PolicyNetwork(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size, init_w=3e-3, log_std_min=-20, log_std_max=2):
@@ -177,8 +144,7 @@ class PolicyNetwork(nn.Module):
         log_prob = normal.log_prob(z) - torch.log(1 - action.pow(2) + epsilon)
         log_prob = log_prob.sum(-1, keepdim=True)
         
-        return action, log_prob, z, mean, log_std
-        
+        return action, log_prob, z, mean, log_std 
     
     def get_action(self, state):
         state = torch.FloatTensor(state).unsqueeze(0).to(device)
@@ -191,10 +157,6 @@ class PolicyNetwork(nn.Module):
         
         action  = action.detach().cpu().numpy()
         return action[0]
-
-
-# In[18]:
-
 
 def soft_q_update(batch_size, 
            gamma=0.99,
@@ -215,7 +177,6 @@ def soft_q_update(batch_size,
     expected_value   = value_net(state)
     new_action, log_prob, z, mean, log_std = policy_net.evaluate(state)
 
-
     target_value = target_value_net(next_state)
     next_q_value = reward + (1 - done) * gamma * target_value
     q_value_loss = soft_q_criterion(expected_q_value, next_q_value.detach())
@@ -225,8 +186,7 @@ def soft_q_update(batch_size,
     value_loss = value_criterion(expected_value, next_value.detach())
 
     log_prob_target = expected_new_q_value - expected_value
-    policy_loss = (log_prob * (log_prob - log_prob_target).detach()).mean()
-    
+    policy_loss = (log_prob * (log_prob - log_prob_target).detach()).mean() 
 
     mean_loss = mean_lambda * mean.pow(2).mean()
     std_loss  = std_lambda  * log_std.pow(2).mean()
@@ -244,17 +204,12 @@ def soft_q_update(batch_size,
 
     policy_optimizer.zero_grad()
     policy_loss.backward()
-    policy_optimizer.step()
-    
+    policy_optimizer.step() 
     
     for target_param, param in zip(target_value_net.parameters(), value_net.parameters()):
         target_param.data.copy_(
             target_param.data * (1.0 - soft_tau) + param.data * soft_tau
         )
-
-
-# In[23]:
-
 
 env = NormalizedActions(gym.make("Pendulum-v0"))
 
@@ -270,7 +225,6 @@ policy_net = PolicyNetwork(state_dim, action_dim, hidden_dim).to(device)
 
 for target_param, param in zip(target_value_net.parameters(), value_net.parameters()):
     target_param.data.copy_(param.data)
-    
 
 value_criterion  = nn.MSELoss()
 soft_q_criterion = nn.MSELoss()
@@ -283,13 +237,8 @@ value_optimizer  = optim.Adam(value_net.parameters(), lr=value_lr)
 soft_q_optimizer = optim.Adam(soft_q_net.parameters(), lr=soft_q_lr)
 policy_optimizer = optim.Adam(policy_net.parameters(), lr=policy_lr)
 
-
 replay_buffer_size = 1000000
 replay_buffer = ReplayBuffer(replay_buffer_size)
-
-
-# In[24]:
-
 
 max_frames  = 40000
 max_steps   = 500
@@ -297,15 +246,7 @@ frame_idx   = 0
 rewards     = []
 batch_size  = 128
 
-
-# In[26]:
-
-
 max_frames  = 40000
-
-
-# In[27]:
-
 
 while frame_idx < max_frames:
     state = env.reset()
@@ -324,22 +265,10 @@ while frame_idx < max_frames:
         frame_idx += 1
         
         if frame_idx % 1000 == 0:
-            plot(frame_idx, rewards)
+            # plot(frame_idx, rewards)
+            print('Frame: %d, Reward: %.2f' % (frame_idx, rewards[-1]))
         
         if done:
             break
         
     rewards.append(episode_reward)
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-

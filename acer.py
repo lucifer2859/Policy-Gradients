@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 import math
 import random
 
@@ -16,29 +10,16 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
 
-
-# In[2]:
-
-
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
 
 
-# <h2>Use CUDA</h2>
-
-# In[3]:
-
-
+# Use CUDA
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
 
 
-# <h2>Episodic Replay Buffer</h2>
-
-# In[43]:
-
-
+# Episodic Replay Buffer
 from collections import deque
 
 class EpisodicReplayMemory(object):
@@ -80,11 +61,7 @@ class EpisodicReplayMemory(object):
         return len(self.buffer)
 
 
-# <h2>Neural Network</h2>
-
-# In[5]:
-
-
+# Neural Network
 class ActorCritic(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size=256):
         super(ActorCritic, self).__init__()
@@ -100,18 +77,13 @@ class ActorCritic(nn.Module):
             nn.Linear(num_inputs, hidden_size),
             nn.Tanh(),
             nn.Linear(hidden_size, num_actions)
-        )
-        
+        )    
         
     def forward(self, x):
         policy  = self.actor(x).clamp(max=1-1e-20)
         q_value = self.critic(x)
         value   = (policy * q_value).sum(-1, keepdim=True)
         return policy, q_value, value
-
-
-# In[6]:
-
 
 def test_env(render=False):
     state = env.reset()
@@ -140,12 +112,8 @@ def plot(frame_idx, rewards):
     plt.show()
 
 
-# <h1>Sample Efficient Actor-Critic with Experience Replay</h1>
-# <h2><a href="https://arxiv.org/abs/1611.01224">Arxiv</a></h2>
-
-# In[7]:
-
-
+# Sample Efficient Actor-Critic with Experience Replay
+# Arxiv: "https://arxiv.org/abs/1611.01224"
 def compute_acer_loss(policies, q_values, values, actions, rewards, retrace, masks, behavior_policies, gamma=0.99, truncation_clip=10, entropy_weight=0.0001):
     loss = 0
     
@@ -157,7 +125,7 @@ def compute_acer_loss(policies, q_values, values, actions, rewards, retrace, mas
 
         log_policy_action = policies[step].gather(1, actions[step]).log()
         truncated_importance_weight = importance_weight.gather(1, actions[step]).clamp(max=truncation_clip)
-        actor_loss = -(truncated_importance_weight * log_policy_action * advantage.detach()).mean(0)
+        actor_loss = - (truncated_importance_weight * log_policy_action * advantage.detach()).mean(0)
 
         correction_weight = (1 - truncation_clip / importance_weight).clamp(min=0)
         actor_loss -= (correction_weight * policies[step].log() * (q_values[step] - values[step]).detach()).sum(1).mean(0)
@@ -176,12 +144,8 @@ def compute_acer_loss(policies, q_values, values, actions, rewards, retrace, mas
     loss.backward()
     optimizer.step()
 
-
-# In[28]:
-
-
 def off_policy_update(batch_size, replay_ratio=4):
-    if batch_size > len(replay_buffer) + 1:
+    if len(replay_buffer) < batch_size:
         return
     
     for _ in range(np.random.poisson(replay_ratio)):
@@ -202,10 +166,6 @@ def off_policy_update(batch_size, replay_ratio=4):
         retrace = retrace.detach()
         compute_acer_loss(policies, q_values, values, action, reward, retrace, mask, old_policy)
 
-
-# In[57]:
-
-
 env = gym.make("CartPole-v0")
 model = ActorCritic(env.observation_space.shape[0], env.action_space.n).to(device)
 
@@ -214,10 +174,6 @@ optimizer = optim.Adam(model.parameters())
 capacity = 1000000
 max_episode_length = 200
 replay_buffer = EpisodicReplayMemory(capacity, max_episode_length)
-
-
-# In[58]:
-
 
 frame_idx    = 0
 max_frames   = 10000
@@ -258,9 +214,6 @@ while frame_idx < max_frames:
         if done:
             state = env.reset()
     
-
-
-    
     next_state = torch.FloatTensor(state).unsqueeze(0).to(device)
     _, _, retrace = model(next_state)
     retrace = retrace.detach()
@@ -270,19 +223,9 @@ while frame_idx < max_frames:
     
     if frame_idx % log_interval == 0:
         test_rewards.append(np.mean([test_env() for _ in range(5)]))
-        plot(frame_idx, test_rewards)
+        # plot(frame_idx, test_rewards)
+        print('Frame: %d, Reward: %.2f' % (frame_idx, test_rewards[-1]))
         
     frame_idx += num_steps
 
-
-# In[59]:
-
-
 test_env(True)
-
-
-# In[ ]:
-
-
-
-

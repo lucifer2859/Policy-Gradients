@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 import math
 import random
 
@@ -16,29 +10,18 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
 
-
-# In[2]:
-
-
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
 
 
-# <h2>Use CUDA</h2>
-
-# In[3]:
-
-
+# Use CUDA
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
 
 
-# <h2>Create Environments</h2>
-
-# In[4]:
-
-
+# Create Environments
+import sys  
+sys.path.append('./common')
 from common.multiprocessing_env import SubprocVecEnv
 
 num_envs = 16
@@ -57,16 +40,11 @@ envs = SubprocVecEnv(envs)
 env = gym.make(env_name)
 
 
-# <h2>Neural Network</h2>
-
-# In[6]:
-
-
+# Neural Network
 def init_weights(m):
     if isinstance(m, nn.Linear):
         nn.init.normal_(m.weight, mean=0., std=0.1)
         nn.init.constant_(m.bias, 0.1)
-        
 
 class ActorCritic(nn.Module):
     def __init__(self, num_inputs, num_outputs, hidden_size, std=0.0):
@@ -85,7 +63,7 @@ class ActorCritic(nn.Module):
         )
         self.log_std = nn.Parameter(torch.ones(1, num_outputs) * std)
         
-        self.apply(init_weights)
+        # self.apply(init_weights)
         
     def forward(self, x):
         value = self.critic(x)
@@ -93,10 +71,6 @@ class ActorCritic(nn.Module):
         std   = self.log_std.exp().expand_as(mu)
         dist  = Normal(mu, std)
         return dist, value
-
-
-# In[7]:
-
 
 def plot(frame_idx, rewards):
     clear_output(True)
@@ -121,11 +95,7 @@ def test_env(vis=False):
     return total_reward
 
 
-# <h3>GAE</h3>
-
-# In[9]:
-
-
+# GAE
 def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
     values = values + [next_value]
     gae = 0
@@ -137,18 +107,13 @@ def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
     return returns
 
 
-# <h3>PPO</h3>
-
-# In[33]:
-
-
+# PPO
 def ppo_iter(mini_batch_size, states, actions, log_probs, returns, advantage):
     batch_size = states.size(0)
-    for _ in range(batch_size // mini_batch_size):
-        rand_ids = np.random.randint(0, batch_size, mini_batch_size)
-        yield states[rand_ids, :], actions[rand_ids, :], log_probs[rand_ids, :], returns[rand_ids, :], advantage[rand_ids, :]
-        
-        
+    ids = np.random.permutation(batch_size)
+    ids = np.split(ids[:batch_size // mini_batch_size * mini_batch_size], batch_size // mini_batch_size)
+    for i in range(len(ids)):
+        yield states[ids[i], :], actions[ids[i], :], log_probs[ids[i], :], returns[ids[i], :], advantage[ids[i], :]       
 
 def ppo_update(ppo_epochs, mini_batch_size, states, actions, log_probs, returns, advantages, clip_param=0.2):
     for _ in range(ppo_epochs):
@@ -171,11 +136,7 @@ def ppo_update(ppo_epochs, mini_batch_size, states, actions, log_probs, returns,
             optimizer.step()
 
 
-# <h2>Loading expert trajectories from №3 notebook</h2>
-
-# In[23]:
-
-
+# Loading expert trajectories from №3 notebook
 try:
     expert_traj = np.load("expert_traj.npy")
 except:
@@ -183,12 +144,8 @@ except:
     assert False
 
 
-# <h1>Generative Adversarial Imitation Learning</h1>
-# <h2><a href="https://arxiv.org/abs/1606.03476">Arxiv</a></h2>
-
-# In[24]:
-
-
+# Generative Adversarial Imitation Learning
+# Arxiv:"https://arxiv.org/abs/1606.03476"
 class Discriminator(nn.Module):
     def __init__(self, num_inputs, hidden_size):
         super(Discriminator, self).__init__()
@@ -200,37 +157,27 @@ class Discriminator(nn.Module):
         self.linear3.bias.data.mul_(0.0)
     
     def forward(self, x):
-        x = F.tanh(self.linear1(x))
-        x = F.tanh(self.linear2(x))
-        prob = F.sigmoid(self.linear3(x))
+        x = torch.tanh(self.linear1(x))
+        x = torch.tanh(self.linear2(x))
+        prob = torch.sigmoid(self.linear3(x))
         return prob
-
-
-# In[25]:
-
 
 def expert_reward(state, action):
     state = state.cpu().numpy()
     state_action = torch.FloatTensor(np.concatenate([state, action], 1)).to(device)
     return -np.log(discriminator(state_action).cpu().data.numpy())
 
-
-# In[35]:
-
-
 num_inputs  = envs.observation_space.shape[0]
 num_outputs = envs.action_space.shape[0]
 
-
-#Hyper params:
-a2c_hidden_size      = 256
+# Hyper params:
+a2c_hidden_size      = 32
 discrim_hidden_size  = 128
-lr                   = 3e-3
-num_steps            = 20
-mini_batch_size      = 5
-ppo_epochs           = 4
+lr                   = 1e-3
+num_steps            = 128
+mini_batch_size      = 256
+ppo_epochs           = 30
 threshold_reward     = -200
-
 
 model         = ActorCritic(num_inputs, num_outputs, a2c_hidden_size).to(device)
 discriminator = Discriminator(num_inputs + num_outputs, discrim_hidden_size).to(device)
@@ -240,17 +187,9 @@ discrim_criterion = nn.BCELoss()
 optimizer  = optim.Adam(model.parameters(), lr=lr)
 optimizer_discrim = optim.Adam(discriminator.parameters(), lr=lr)
 
-
-# In[36]:
-
-
 test_rewards = []
 max_frames = 100000
 frame_idx = 0
-
-
-# In[37]:
-
 
 i_update = 0
 state = envs.reset()
@@ -292,9 +231,9 @@ while frame_idx < max_frames and not early_stop:
         if frame_idx % 1000 == 0:
             test_reward = np.mean([test_env() for _ in range(10)])
             test_rewards.append(test_reward)
-            plot(frame_idx, test_rewards)
-            if test_reward > threshold_reward: early_stop = True
-            
+            # plot(frame_idx, test_rewards)
+            print('Frame: %d, Reward: %.2f' % (frame_idx, test_rewards[-1]))
+            if test_reward > threshold_reward: early_stop = True      
 
     next_state = torch.FloatTensor(next_state).to(device)
     _, next_value = model(next_state)
@@ -308,8 +247,7 @@ while frame_idx < max_frames and not early_stop:
     advantage = returns - values
     
     if i_update % 3 == 0:
-        ppo_update(4, mini_batch_size, states, actions, log_probs, returns, advantage)
-    
+        ppo_update(4, mini_batch_size, states, actions, log_probs, returns, advantage)   
     
     expert_state_action = expert_traj[np.random.randint(0, expert_traj.shape[0], 2 * num_steps * num_envs), :]
     expert_state_action = torch.FloatTensor(expert_state_action).to(device)
@@ -321,15 +259,4 @@ while frame_idx < max_frames and not early_stop:
     discrim_loss.backward()
     optimizer_discrim.step()
 
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
 test_env(True)
-

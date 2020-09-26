@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 import math
 import random
 
@@ -16,29 +10,16 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
 
-
-# In[2]:
-
-
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
 
 
-# <h2>Use CUDA</h2>
-
-# In[3]:
-
-
+# Use CUDA
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
 
 
-# <h2>Replay Buffer</h2>
-
-# In[4]:
-
-
+# Replay Buffer
 class ReplayBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
@@ -59,12 +40,8 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
-
-# In[6]:
-
-
 class NormalizedActions(gym.ActionWrapper):
-    def _action(self, action):
+    def action(self, action):
         low  = self.action_space.low
         high = self.action_space.high
         
@@ -83,11 +60,7 @@ class NormalizedActions(gym.ActionWrapper):
         return actions
 
 
-# <h2>Adding Gaussian Noise</h2>
-
-# In[10]:
-
-
+# Adding Gaussian Noise
 class GaussianExploration(object):
     def __init__(self, action_space, max_sigma=1.0, min_sigma=1.0, decay_period=1000000):
         self.low  = action_space.low
@@ -101,17 +74,12 @@ class GaussianExploration(object):
         action = action + np.random.normal(size=len(action)) * sigma
         return np.clip(action, self.low, self.high)
     
-#https://github.com/vitchyr/rlkit/blob/master/rlkit/exploration_strategies/gaussian_strategy.py
-
-
-# In[12]:
-
-
+# https://github.com/vitchyr/rlkit/blob/master/rlkit/exploration_strategies/gaussian_strategy.py
 def soft_update(net, target_net, soft_tau=1e-2):
     for target_param, param in zip(target_net.parameters(), net.parameters()):
-            target_param.data.copy_(
-                target_param.data * (1.0 - soft_tau) + param.data * soft_tau
-            )
+        target_param.data.copy_(
+            target_param.data * (1.0 - soft_tau) + param.data * soft_tau
+        )
             
 def plot(frame_idx, rewards):
     clear_output(True)
@@ -122,12 +90,8 @@ def plot(frame_idx, rewards):
     plt.show()
 
 
-# <h1>Addressing Function Approximation Error in Actor-Critic Methods</h1>
-# <h2><a href="https://arxiv.org/abs/1802.09477">Arxiv</a></h2>
-
-# In[13]:
-
-
+# Addressing Function Approximation Error in Actor-Critic Methods
+# Arxiv:"https://arxiv.org/abs/1802.09477"
 class ValueNetwork(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size, init_w=3e-3):
         super(ValueNetwork, self).__init__()
@@ -144,8 +108,7 @@ class ValueNetwork(nn.Module):
         x = F.relu(self.linear1(x))
         x = F.relu(self.linear2(x))
         x = self.linear3(x)
-        return x
-    
+        return x  
 
 class PolicyNetwork(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_size, init_w=3e-3):
@@ -161,7 +124,7 @@ class PolicyNetwork(nn.Module):
     def forward(self, state):
         x = F.relu(self.linear1(state))
         x = F.relu(self.linear2(x))
-        x = F.tanh(self.linear3(x))
+        x = torch.tanh(self.linear3(x))
         return x
     
     def get_action(self, state):
@@ -170,11 +133,7 @@ class PolicyNetwork(nn.Module):
         return action.detach().cpu().numpy()[0]
 
 
-# <h2>Twin Dueling DDPG Update</h2>
-
-# In[29]:
-
-
+# Twin Dueling DDPG Update
 def td3_update(step,
            batch_size,
            gamma = 0.99,
@@ -218,7 +177,7 @@ def td3_update(step,
 
     if step % policy_update == 0:
         policy_loss = value_net1(state, policy_net(state))
-        policy_loss = -policy_loss.mean()
+        policy_loss = - policy_loss.mean()
 
         policy_optimizer.zero_grad()
         policy_loss.backward()
@@ -227,10 +186,6 @@ def td3_update(step,
         soft_update(value_net1, target_value_net1, soft_tau=soft_tau)
         soft_update(value_net2, target_value_net2, soft_tau=soft_tau)
         soft_update(policy_net, target_policy_net, soft_tau=soft_tau)
-
-
-# In[33]:
-
 
 env = NormalizedActions(gym.make('Pendulum-v0'))
 noise = GaussianExploration(env.action_space)
@@ -251,7 +206,6 @@ soft_update(value_net1, target_value_net1, soft_tau=1.0)
 soft_update(value_net2, target_value_net2, soft_tau=1.0)
 soft_update(policy_net, target_policy_net, soft_tau=1.0)
 
-
 value_criterion = nn.MSELoss()
 
 policy_lr = 1e-3
@@ -265,19 +219,11 @@ policy_optimizer = optim.Adam(policy_net.parameters(), lr=policy_lr)
 replay_buffer_size = 1000000
 replay_buffer = ReplayBuffer(replay_buffer_size)
 
-
-# In[34]:
-
-
 max_frames  = 10000
 max_steps   = 500
 frame_idx   = 0
 rewards     = []
 batch_size  = 128
-
-
-# In[35]:
-
 
 while frame_idx < max_frames:
     state = env.reset()
@@ -297,16 +243,10 @@ while frame_idx < max_frames:
         frame_idx += 1
         
         if frame_idx % 1000 == 0:
-            plot(frame_idx, rewards)
+            # plot(frame_idx, rewards)
+            print('Frame: %d, Reward: %.2f' % (frame_idx, rewards[-1]))
         
         if done:
             break
         
     rewards.append(episode_reward)
-
-
-# In[ ]:
-
-
-
-

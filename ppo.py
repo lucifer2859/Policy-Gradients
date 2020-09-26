@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 import math
 import random
 
@@ -16,29 +10,18 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
 
-
-# In[2]:
-
-
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
 
 
-# <h2>Use CUDA</h2>
-
-# In[3]:
-
-
+# Use CUDA
 use_cuda = torch.cuda.is_available()
 device   = torch.device("cuda" if use_cuda else "cpu")
 
 
-# <h2>Create Environments</h2>
-
-# In[4]:
-
-
+# Create Environments
+import sys  
+sys.path.append('./common')
 from common.multiprocessing_env import SubprocVecEnv
 
 num_envs = 16
@@ -57,16 +40,11 @@ envs = SubprocVecEnv(envs)
 env = gym.make(env_name)
 
 
-# <h2>Neural Network</h2>
-
-# In[71]:
-
-
+# Neural Network
 def init_weights(m):
     if isinstance(m, nn.Linear):
         nn.init.normal_(m.weight, mean=0., std=0.1)
-        nn.init.constant_(m.bias, 0.1)
-        
+        nn.init.constant_(m.bias, 0.1)      
 
 class ActorCritic(nn.Module):
     def __init__(self, num_inputs, num_outputs, hidden_size, std=0.0):
@@ -85,7 +63,7 @@ class ActorCritic(nn.Module):
         )
         self.log_std = nn.Parameter(torch.ones(1, num_outputs) * std)
         
-        self.apply(init_weights)
+        # self.apply(init_weights)
         
     def forward(self, x):
         value = self.critic(x)
@@ -93,10 +71,6 @@ class ActorCritic(nn.Module):
         std   = self.log_std.exp().expand_as(mu)
         dist  = Normal(mu, std)
         return dist, value
-
-
-# In[72]:
-
 
 def plot(frame_idx, rewards):
     clear_output(True)
@@ -121,11 +95,7 @@ def test_env(vis=False):
     return total_reward
 
 
-# <h2>GAE</h2>
-
-# In[73]:
-
-
+# GAE
 def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
     values = values + [next_value]
     gae = 0
@@ -137,19 +107,14 @@ def compute_gae(next_value, rewards, masks, values, gamma=0.99, tau=0.95):
     return returns
 
 
-# <h1> Proximal Policy Optimization Algorithm</h1>
-# <h2><a href="https://arxiv.org/abs/1707.06347">Arxiv</a></h2>
-
-# In[74]:
-
-
+# Proximal Policy Optimization Algorithm
+# Arxiv: "https://arxiv.org/abs/1707.06347"
 def ppo_iter(mini_batch_size, states, actions, log_probs, returns, advantage):
     batch_size = states.size(0)
-    for _ in range(batch_size // mini_batch_size):
-        rand_ids = np.random.randint(0, batch_size, mini_batch_size)
-        yield states[rand_ids, :], actions[rand_ids, :], log_probs[rand_ids, :], returns[rand_ids, :], advantage[rand_ids, :]
-        
-        
+    ids = np.random.permutation(batch_size)
+    ids = np.split(ids[:batch_size // mini_batch_size * mini_batch_size], batch_size // mini_batch_size)
+    for i in range(len(ids)):
+        yield states[ids[i], :], actions[ids[i], :], log_probs[ids[i], :], returns[ids[i], :], advantage[ids[i], :]
 
 def ppo_update(ppo_epochs, mini_batch_size, states, actions, log_probs, returns, advantages, clip_param=0.2):
     for _ in range(ppo_epochs):
@@ -171,35 +136,23 @@ def ppo_update(ppo_epochs, mini_batch_size, states, actions, log_probs, returns,
             loss.backward()
             optimizer.step()
 
-
-# In[82]:
-
-
 num_inputs  = envs.observation_space.shape[0]
 num_outputs = envs.action_space.shape[0]
 
-#Hyper params:
-hidden_size      = 256
-lr               = 3e-4
-num_steps        = 20
-mini_batch_size  = 5
-ppo_epochs       = 4
+# Hyper params:
+hidden_size      = 32
+lr               = 1e-3
+num_steps        = 128
+mini_batch_size  = 256
+ppo_epochs       = 30
 threshold_reward = -200
 
 model = ActorCritic(num_inputs, num_outputs, hidden_size).to(device)
 optimizer = optim.Adam(model.parameters(), lr=lr)
 
-
-# In[83]:
-
-
-max_frames = 15000
+max_frames = 20000
 frame_idx  = 0
 test_rewards = []
-
-
-# In[86]:
-
 
 state = envs.reset()
 early_stop = False
@@ -238,9 +191,9 @@ while frame_idx < max_frames and not early_stop:
         if frame_idx % 1000 == 0:
             test_reward = np.mean([test_env() for _ in range(10)])
             test_rewards.append(test_reward)
-            plot(frame_idx, test_rewards)
+            # plot(frame_idx, test_rewards)
+            print('Frame: %d, Reward: %.2f' % (frame_idx, test_rewards[-1]))
             if test_reward > threshold_reward: early_stop = True
-            
 
     next_state = torch.FloatTensor(next_state).to(device)
     _, next_value = model(next_state)
@@ -256,11 +209,7 @@ while frame_idx < max_frames and not early_stop:
     ppo_update(ppo_epochs, mini_batch_size, states, actions, log_probs, returns, advantage)
 
 
-# <h1>Saving trajectories for GAIL</h1>
-
-# In[87]:
-
-
+# Saving trajectories for GAIL
 from itertools import count
 
 max_expert_num = 50000
@@ -282,7 +231,7 @@ for i_episode in count():
         expert_traj.append(np.hstack([state, action]))
         num_steps += 1
     
-    print("episode:", i_episode, "reward:", total_reward)
+    print("Episode: %d, Reward: %.2f" % (i_episode, total_reward))
     
     if num_steps >= max_expert_num:
         break
@@ -292,4 +241,3 @@ print()
 print(expert_traj.shape)
 print()
 np.save("expert_traj.npy", expert_traj)
-
