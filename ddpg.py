@@ -41,7 +41,7 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-# Normalize action space
+# Normalize action space, which is a trick for the game (Pendulum-v0)
 class NormalizedActions(gym.ActionWrapper):
 
     def action(self, action):
